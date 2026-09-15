@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arena 13 · La Liebre contra la Tortuga</title>
+  <!-- A-Frame va incluido en este mismo proyecto (aframe.min.js) para que
+       la experiencia funcione sin depender de internet ni de que el CDN
+       externo aframe.io esté accesible (bloqueado por firewall, sin
+       conexión, o por el visor donde se abra la página). -->
+  <script src="aframe.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, sans-serif; }
+    a-scene { position: absolute; inset: 0; }
+
+    /* ---------- Overlay de infografía (fuera de la escena 3D) ---------- */
+    #ui {
+      position: absolute; inset: 0; pointer-events: none;
+      display: flex; flex-direction: column; justify-content: space-between;
+      z-index: 10;
+    }
+    #barraSuperior {
+      pointer-events: auto;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 22px;
+      background: linear-gradient(to bottom, rgba(15,7,30,0.85), rgba(15,7,30,0));
+      color: #f3e9ff;
+    }
+    #barraSuperior h1 { font-size: 17px; margin: 0; letter-spacing: 0.5px; }
+    #puntosProgreso { display: flex; gap: 6px; }
+    .punto {
+      width: 9px; height: 9px; border-radius: 50%; cursor: pointer;
+      background: rgba(255,255,255,0.25); transition: background 0.25s, transform 0.25s;
+    }
+    .punto.activo { background: #a855f7; transform: scale(1.3); }
+    .punto:hover { background: rgba(168,85,247,0.6); }
+
+    #panelNarracion {
+      pointer-events: auto;
+      margin: 0 auto 26px; max-width: 640px; width: calc(100% - 40px);
+      background: rgba(15,7,30,0.88);
+      border: 1px solid rgba(168,85,247,0.5);
+      border-radius: 14px;
+      padding: 18px 22px;
+      color: #f3e9ff;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+      transition: opacity 0.2s ease;
+    }
+    #tituloEscena { margin: 0 0 6px; font-size: 15px; color: #c9a2ff; text-transform: uppercase; letter-spacing: 0.8px; }
+    #textoEscena { margin: 0 0 14px; font-size: 15.5px; line-height: 1.5; }
+    #controles { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .boton {
+      pointer-events: auto; cursor: pointer;
+      border: 1px solid rgba(168,85,247,0.6);
+      background: rgba(168,85,247,0.18);
+      color: #f3e9ff; border-radius: 8px;
+      padding: 9px 16px; font-size: 14px;
+      transition: background 0.15s, opacity 0.15s;
+    }
+    .boton:hover { background: rgba(168,85,247,0.35); }
+    .boton:disabled { opacity: 0.35; cursor: default; }
+    .boton.secundario { background: transparent; border-color: rgba(255,255,255,0.25); }
+
+    /* ---------- Panel de mazo (aparece al hacer clic en un personaje) ---------- */
+    #panelMazo {
+      pointer-events: auto;
+      position: absolute; top: 70px; right: 22px; width: 250px;
+      background: rgba(15,7,30,0.92);
+      border: 1px solid rgba(168,85,247,0.5);
+      border-radius: 12px; padding: 16px; color: #f3e9ff;
+      display: none;
+    }
+    #panelMazo h2 { margin: 0 0 4px; font-size: 15px; color: #c9a2ff; }
+    #panelMazo p.estilo { margin: 0 0 10px; font-size: 12.5px; opacity: 0.75; }
+    #mazoLista { list-style: none; margin: 0 0 12px; padding: 0; font-size: 14px; }
+    #mazoLista li { padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    #btnCerrarMazo { width: 100%; }
+
+    /* ---------- Instrucciones iniciales ---------- */
+    #panelInstrucciones {
+      pointer-events: auto;
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: rgba(10,4,20,0.82); z-index: 20; text-align: center; padding: 20px;
+    }
+    #panelInstrucciones .caja {
+      max-width: 420px; background: rgba(15,7,30,0.95);
+      border: 1px solid rgba(168,85,247,0.5); border-radius: 14px;
+      padding: 26px; color: #f3e9ff;
+    }
+    #panelInstrucciones h2 { margin-top: 0; color: #c9a2ff; }
+    #panelInstrucciones p { font-size: 14.5px; line-height: 1.6; }
+
+    /* ---------- Aviso: A-Frame no cargó ---------- */
+    #avisoError {
+      display: none;
+      position: absolute; inset: 0; z-index: 30;
+      align-items: center; justify-content: center;
+      background: rgba(10,4,20,0.92); padding: 20px;
+    }
+    #avisoError .caja {
+      max-width: 520px; background: #2a1010;
+      border: 1px solid #e74c3c; border-radius: 14px;
+      padding: 26px; color: #ffe3e3;
+    }
+    #avisoError h2 { margin-top: 0; color: #ff8a8a; font-size: 17px; }
+    #avisoError p, #avisoError li { font-size: 14px; line-height: 1.6; }
+    #avisoError code { background: rgba(255,255,255,0.12); padding: 1px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+  <!-- ============================================================
+       ESCENA 3D — Escenario virtual 360 con A-Frame
+       ============================================================ -->
+  <a-scene>
+
+    <a-assets>
+      <!-- Imagen 360 del ambiente de la arena (paisaje con árboles y
+           castillos, equirectangular). Para cambiarla por otra, reemplaza
+           assets/arena_360.png y/o ajusta el "src" de esta línea. -->
+      <img id="cielo360" src="assets/arena_360.png">
+
+      <!-- Modelos 3D de los personajes. Coloca aquí tus propios archivos .glb -->
+      <a-asset-item id="modeloLiebre" src="assets/liebre.glb"></a-asset-item>
+      <a-asset-item id="modeloTortuga" src="assets/tortuga.glb"></a-asset-item>
+    </a-assets>
+
+    <!-- Cielo 360 -->
+    <a-sky id="cielo" src="#cielo360" radius="120" rotation="0 -90 0"></a-sky>
+
+    <!-- Piso de la arena: pasto, acorde al paisaje del cielo 360 -->
+    <a-circle id="pisoArena" radius="14" rotation="-90 0 0" position="0 0 0"
+              material="color:#4c7a3a; roughness:1; metalness:0"></a-circle>
+    <a-ring radius-inner="13.7" radius-outer="14" rotation="-90 0 0" position="0 0.01 0"
+            material="color:#8a6a45; roughness:1; shader:flat"></a-ring>
+    <!-- Carril central ("puente"): camino de tierra -->
+    <a-plane width="2.4" height="20" rotation="-90 0 0" position="0 0.005 0"
+             material="color:#8a6a45; opacity:0.85; roughness:1"></a-plane>
+
+    <!-- ---------- Torre de la Liebre (lado -z) ---------- -->
+    <a-entity id="torreLiebre" position="0 0 -11">
+      <a-box width="1.3" height="1.8" depth="1.3" position="0 0.9 0" material="color:#c0392b"></a-box>
+      <a-cone radius-bottom="1" radius-top="0" height="0.9" position="0 2.25 0" material="color:#7f1d1d"></a-cone>
+      <!-- Marco y relleno de la barra de vida -->
+      <a-plane id="marcoVidaLiebre" width="2" height="0.2" position="0 2.9 0" material="color:#1a1a1a; opacity:0.6"></a-plane>
+      <a-plane id="vidaLiebre" width="2" height="0.18" position="-1 2.9 0.001" material="color:#e74c3c"></a-plane>
+    </a-entity>
+
+    <!-- ---------- Torre de la Tortuga (lado +z) ---------- -->
+    <a-entity id="torreTortuga" position="0 0 11">
+      <a-box width="1.3" height="1.8" depth="1.3" position="0 0.9 0" material="color:#2e6da4"></a-box>
+      <a-cone radius-bottom="1" radius-top="0" height="0.9" position="0 2.25 0" material="color:#1b4665"></a-cone>
+      <a-plane id="marcoVidaTortuga" width="2" height="0.2" position="0 2.9 0" material="color:#1a1a1a; opacity:0.6"></a-plane>
+      <a-plane id="vidaTortuga" width="2" height="0.18" position="-1 2.9 0.001" material="color:#3498db"></a-plane>
+      <!-- Texto de victoria, oculto hasta el desenlace -->
+      <a-entity id="textoVictoria" visible="false" text="value: ¡VICTORIA!; color:#FFD700; align:center; width:7" position="0 4.1 0"></a-entity>
+    </a-entity>
+
+    <!-- ---------- Personaje: la Liebre ---------- -->
+    <a-entity id="grupoLiebre" position="-1.5 0 -4">
+      <!-- Marcador de respaldo: se oculta automáticamente si el .glb carga bien -->
+      <a-cone id="marcadorLiebre" radius-bottom="0.5" radius-top="0" height="1.6" position="0 0.8 0" material="color:#c0392b"></a-cone>
+      <a-entity id="personajeLiebre" gltf-model="#modeloLiebre" scale="1.5 1.5 1.5" position="0 1.428 0" rotation="0 0 0"></a-entity>
+      <!-- Anillo de resalte cuando es su turno de actuar -->
+      <a-ring id="anilloLiebre" visible="false" radius-inner="0.6" radius-outer="0.78" rotation="-90 0 0" position="0 0.03 0"
+              material="color:#ff6b4a; emissive:#ff6b4a; emissiveIntensity:0.8; shader:flat"></a-ring>
+      <!-- Barra de elixir: flota directamente ARRIBA de la cabeza (offset solo
+           en Y) en vez de ir a un lado. Así, aunque el grupo tenga rotación
+           en Y o la cámara mire desde cualquier ángulo alrededor de la
+           arena 360°, la barra nunca queda en línea con el modelo. -->
+      <a-box width="0.4" height="3" depth="0.4" position="0 5.5 0" material="color:#4b0082; wireframe:true; opacity:0.5"></a-box>
+      <a-box id="elixirLiebre" width="0.32" height="0.1" depth="0.32" position="0 4.02 0" material="color:#a855f7; emissive:#a855f7; emissiveIntensity:0.6"></a-box>
+    </a-entity>
+
+    <!-- Icono clicable con el mazo de la Liebre -->
+    <a-sphere id="iconoLiebre" class="clickable" radius="0.16" position="-1.5 2.3 -4"
+              material="color:#ffd166; emissive:#ffd166; emissiveIntensity:0.5"
+              animation="property: position; dir: alternate; dur: 1800; loop: true; to: -1.5 2.55 -4; easing: easeInOutSine"></a-sphere>
+
+    <!-- ---------- Personaje: la Tortuga ---------- -->
+    <a-entity id="grupoTortuga" position="1.5 0 4" rotation="0 180 0">
+      <!-- Marcador de respaldo: caparazón simple, se oculta automáticamente
+           si el .glb carga bien -->
+      <a-sphere id="marcadorTortuga" radius="0.55" scale="1 0.55 1.3" position="1 20 20" material="color:#2e8b57"></a-sphere>
+      <a-entity id="personajeTortuga" gltf-model="#modeloTortuga" scale="2 2 2" position="0 1.904 0" rotation="0 0 0"></a-entity>
+      <a-ring id="anilloTortuga" visible="false" radius-inner="0.6" radius-outer="0.78" rotation="-90 0 0" position="0 0.03 0"
+              material="color:#ffd700; emissive:#ffd700; emissiveIntensity:0.8; shader:flat"></a-ring>
+      <a-box width="0.4" height="3" depth="0.4" position="0 5.5 0" material="color:#123524; wireframe:true; opacity:0.5"></a-box>
+      <a-box id="elixirTortuga" width="0.32" height="0.1" depth="0.32" position="0 4.02 0" material="color:#2ecc71; emissive:#2ecc71; emissiveIntensity:0.6"></a-box>
+    </a-entity>
+
+    <a-sphere id="iconoTortuga" class="clickable" radius="0.16" position="1.5 2.3 4"
+              material="color:#ffd166; emissive:#ffd166; emissiveIntensity:0.5"
+              animation="property: position; dir: alternate; dur: 2000; loop: true; to: 1.5 2.55 4; easing: easeInOutSine"></a-sphere>
+
+    <!-- Estaciones de la historia repartidas en los 360° de la arena
+         (se generan por script, una por cada paso de "escenas") -->
+    <a-entity id="estaciones"></a-entity>
+
+    <!-- Motas de elixir flotando por la arena (decoración) -->
+    <a-entity id="motas"></a-entity>
+
+    <!-- Luces -->
+    <a-entity light="type: directional; intensity: 0.8; castShadow: true" position="4 8 2"></a-entity>
+    <a-entity light="type: ambient; intensity: 0.55; color: #cbb3ff"></a-entity>
+    <a-entity light="type: point; intensity: 0.4; color:#a855f7; distance: 25" position="0 4 0"></a-entity>
+
+    <!-- Cámara con navegación libre (mouse/touch para mirar, WASD para moverse)
+         y un cursor de mouse para poder hacer clic sobre los personajes -->
+    <a-entity id="camara" camera look-controls wasd-controls position="0 3 9"
+              cursor="rayOrigin: mouse" raycaster="objects: .clickable; far: 40">
+    </a-entity>
+
+  </a-scene>
+
+  <!-- Aviso que se muestra SOLO si A-Frame no pudo cargar (por ejemplo,
+       si faltó copiar "aframe.min.js" junto a este archivo, o si la
+       página se abrió dentro de un visor que bloquea scripts). -->
+  <div id="avisoError">
+    <div class="caja">
+      <h2>⚠️ No se pudo cargar el motor 3D (A-Frame)</h2>
+      <p>Por eso solo se ve el panel de texto y no la arena en 3D. Revisa esto:</p>
+      <ul>
+        <li>Que el archivo <code>aframe.min.js</code> esté en la MISMA carpeta que <code>index.html</code> (se descargó junto con él; si solo copiaste <code>index.html</code>, falta).</li>
+        <li>Que estés abriendo la página con <b>Live Server</b> (una URL tipo <code>http://127.0.0.1:5500/...</code>), no con doble clic directo sobre el archivo.</li>
+        <li>Si la estás viendo dentro de una vista previa integrada (por ejemplo, "Simple Browser" de VS Code), ábrela en su lugar en Chrome, Edge o Firefox normales.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       OVERLAY 2D — la parte "infografía" de la experiencia
+       ============================================================ -->
+  <div id="ui">
+    <div id="barraSuperior">
+      <h1>Arena 13 · La Liebre contra la Tortuga</h1>
+      <div id="puntosProgreso"></div>
+    </div>
+
+    <div id="panelNarracion">
+      <p id="tituloEscena">1. El anuncio del duelo</p>
+      <p id="textoEscena">Cargando...</p>
+      <div id="controles">
+        <button id="btnAnterior" class="boton secundario">‹ Anterior</button>
+        <button id="btnReiniciar" class="boton secundario">Reiniciar</button>
+        <button id="btnSiguiente" class="boton">Siguiente ›</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="panelMazo">
+    <h2 id="mazoTitulo">Mazo</h2>
+    <p class="estilo" id="mazoEstilo">Estilo de juego</p>
+    <ul id="mazoLista"></ul>
+    <button id="btnCerrarMazo" class="boton secundario">Cerrar</button>
+  </div>
+
+  <div id="panelInstrucciones">
+    <div class="caja">
+      <h2>Cómo explorar la Arena 13</h2>
+      <p>Arrastra con el mouse (o el dedo en móvil) para mirar alrededor del escenario 360°, y usa las teclas <b>W A S D</b> para caminar por la arena: al acercarte a una corona numerada, la historia avanza sola. También puedes usar <b>Siguiente</b> / <b>Anterior</b>, los puntos de arriba, o hacer clic directo en una corona — te teletransportan ahí al instante. Haz clic en los círculos dorados sobre cada personaje para ver el detalle de su mazo.</p>
+      <button id="btnEntendido" class="boton">Entendido, ¡empezar!</button>
+    </div>
+  </div>
+
+  <script>
+    // Si por lo que sea A-Frame no cargó (falta aframe.min.js junto a
+    // este archivo, o el visor donde se abre bloquea scripts), se
+    // muestra un aviso explicando qué revisar, en vez de dejar la
+    // pantalla en blanco sin explicación.
+    if (typeof AFRAME === 'undefined') {
+      document.getElementById('avisoError').style.display = 'flex';
+    }
+
+    // ============================================================
+    // Datos de la historia: cada objeto es un "paso" de la infografía.
+    // Edita textos y valores aquí para ajustar la narrativa sin tocar
+    // el resto del código.
+    // ============================================================
+    const IDLE_LIEBRE = '-1.5 0 -4';
+    const IDLE_TORTUGA = '1.5 0 4';
+
+    const escenas = [
+      {
+        titulo: '1. El anuncio del duelo',
+        texto: 'En la Arena 13, donde los mejores jugadores del reino se enfrentaban por la Corona Real, se anunció un duelo legendario: la Liebre, conocida en todo el servidor por sus victorias relámpago, contra la Tortuga, una jugadora paciente a la que nadie tomaba en serio.',
+        elixirLiebre: 5, elixirTortuga: 5, vidaLiebre: 100, vidaTortuga: 100,
+        resaltar: null, victoria: false,
+        posLiebre: IDLE_LIEBRE, posTortuga: IDLE_TORTUGA
+      },
+      {
+        titulo: '2. El mazo de la Liebre — ciclo rápido',
+        texto: 'La Liebre jugaba un mazo de ciclo rápido: Ariete de Hielo, Duendes, Mosquetera y Bola de Fuego. Su elixir se regeneraba y ella ya lo estaba gastando, carta tras carta, sin dejar pasar ni un segundo.',
+        elixirLiebre: 9, elixirTortuga: 4, vidaLiebre: 100, vidaTortuga: 100,
+        resaltar: 'liebre', victoria: false
+      },
+      {
+        titulo: '3. El mazo de la Tortuga — control',
+        texto: 'La Tortuga jugaba un mazo de control: Gigante, Sabio, Torre de Bruja y Valquiria. No tocaba el puente. Dejaba que su elixir se acumulara despacio, colocaba una defensa aquí, un muro de tropas allá, y observaba con calma cada movimiento de su rival.',
+        elixirLiebre: 6, elixirTortuga: 7, vidaLiebre: 100, vidaTortuga: 100,
+        resaltar: 'tortuga', victoria: false
+      },
+      {
+        titulo: '4. Minuto 1 — tres oleadas',
+        texto: 'En el primer minuto, la Liebre ya había lanzado tres oleadas de ataque. En el chat de espectadores se leía: "esta partida va a durar treinta segundos."',
+        elixirLiebre: 2, elixirTortuga: 6, vidaLiebre: 100, vidaTortuga: 92,
+        resaltar: 'liebre', victoria: false
+      },
+      {
+        titulo: '5. La paciencia de la Tortuga',
+        texto: 'La Tortuga seguía sin tocar el puente. Anotaba mentalmente qué cartas ya había gastado la Liebre y cuáles le quedaban en el mazo, mientras su elixir seguía creciendo.',
+        elixirLiebre: 5, elixirTortuga: 9, vidaLiebre: 100, vidaTortuga: 85,
+        resaltar: 'tortuga', victoria: false
+      },
+      {
+        titulo: '6. Minuto 3 — la torre cae a la mitad',
+        texto: 'Para el minuto tres, la Liebre había derribado casi la mitad de la torre de la Tortuga. Confiada, pensó: "Con esta velocidad no hay quien me alcance."',
+        elixirLiebre: 8, elixirTortuga: 10, vidaLiebre: 100, vidaTortuga: 50,
+        resaltar: 'liebre', victoria: false
+      },
+      {
+        titulo: '7. El push desesperado',
+        texto: 'La Liebre decidió ir con todo: soltó su Ariete de Hielo, su Mosquetera y su última Bola de Fuego en un solo ataque, vaciando por completo su elixir para intentar sellar la partida antes del tiempo extra.',
+        elixirLiebre: 0, elixirTortuga: 10, vidaLiebre: 100, vidaTortuga: 45,
+        resaltar: 'liebre', victoria: false,
+        posLiebre: '-1.5 0 6'
+      },
+      {
+        titulo: '8. El contragolpe',
+        texto: 'La Tortuga aprovechó el momento. Con el elixir guardado pacientemente, colocó su Gigante como muro, su Valquiria para limpiar el contraataque, y remató con el Sabio, que voló directo hacia la torre desprotegida de la Liebre.',
+        elixirLiebre: 1, elixirTortuga: 1, vidaLiebre: 0, vidaTortuga: 45,
+        resaltar: 'tortuga', victoria: false,
+        posLiebre: '-1.5 0 6', posTortuga: '1.5 0 -8'
+      },
+      {
+        titulo: '9. ¡Victoria!',
+        texto: 'Sin elixir para defender, la Liebre solo pudo ver caer su torre justo cuando el reloj marcaba el último segundo. "Victoria" apareció en pantalla junto al nombre de la Tortuga.',
+        elixirLiebre: 1, elixirTortuga: 1, vidaLiebre: 0, vidaTortuga: 45,
+        resaltar: 'tortuga', victoria: true,
+        posLiebre: '-1.5 0 6', posTortuga: '1.5 0 -8'
+      },
+      {
+        titulo: '10. La lección',
+        texto: 'Esa noche, la Liebre entendió su error: no había perdido por falta de velocidad, sino por falta de paciencia. Desde entonces aprendió a leer el elixir de su rival y a nunca quedarse sin recursos para el contragolpe. En la arena, como en la vida, no gana quien ataca más rápido, sino quien sabe cuándo atacar y cuándo esperar.',
+        elixirLiebre: 5, elixirTortuga: 5, vidaLiebre: 0, vidaTortuga: 45,
+        resaltar: null, victoria: false,
+        posLiebre: IDLE_LIEBRE, posTortuga: IDLE_TORTUGA
+      }
+    ];
+
+    const mazos = {
+      liebre: {
+        titulo: 'Mazo de la Liebre',
+        estilo: 'Estilo: ciclo rápido',
+        cartas: ['Ariete de Hielo', 'Duendes', 'Mosquetera', 'Bola de Fuego']
+      },
+      tortuga: {
+        titulo: 'Mazo de la Tortuga',
+        estilo: 'Estilo: control',
+        cartas: ['Gigante', 'Sabio', 'Torre de Bruja', 'Valquiria']
+      }
+    };
+
+    let indiceActual = 0;
+
+    // ---------- Referencias a elementos ----------
+    const el = (id) => document.getElementById(id);
+    const camara = el('camara');
+
+    // Radio de la arena (coincide con el piso) y radio al que se ubican
+    // los pilares-estación: la cámara "llega" a una estación parándose un
+    // poco antes del pilar mismo.
+    const RADIO_ARENA = 13;
+    const RADIO_ESTACIONES = 9;
+    const RADIO_LLEGADA = RADIO_ESTACIONES - 2.2;
+    const RADIO_DETECCION = 3;
+
+    // Ángulo (en grados) que le corresponde a cada escena, repartido en
+    // los 360° completos de la arena. La escena 1 queda en 0° (la
+    // orientación con la que arranca la cámara).
+    function anguloEscena(i) {
+      return i * (360 / escenas.length);
+    }
+
+    function posicionEnRadio(anguloGrados, radio) {
+      const rad = (anguloGrados * Math.PI) / 180;
+      return { x: radio * -Math.sin(rad), z: radio * -Math.cos(rad) };
+    }
+
+    // Teletransporta la cámara justo frente al pilar de la escena i.
+    // A diferencia de girar la rotación (que look-controls recalcula cada
+    // frame y puede pelear con ella), mover la POSICIÓN es seguro: ni
+    // look-controls ni wasd-controls la sobrescriben, así que el cambio
+    // siempre se queda puesto.
+    function moverCamaraA(i) {
+      const p = posicionEnRadio(anguloEscena(i), RADIO_LLEGADA);
+      const actual = camara.getAttribute('position');
+      camara.setAttribute('position', { x: p.x, y: actual.y, z: p.z });
+    }
+
+    // Punto único de entrada para cambiar de escena: actualiza el
+    // contenido y, salvo que se indique lo contrario, teletransporta a la
+    // cámara hasta la estación correspondiente.
+    function irAEscena(i, opciones) {
+      opciones = opciones || {};
+      indiceActual = Math.max(0, Math.min(escenas.length - 1, i));
+      renderEscena();
+      if (opciones.moverCamara !== false) {
+        moverCamaraA(indiceActual);
+      }
+    }
+
+    function crearPuntos() {
+      const cont = el('puntosProgreso');
+      escenas.forEach((_, i) => {
+        const p = document.createElement('div');
+        p.className = 'punto';
+        p.title = escenas[i].titulo;
+        p.addEventListener('click', () => irAEscena(i));
+        cont.appendChild(p);
+      });
+    }
+
+    function actualizarPuntos() {
+      document.querySelectorAll('.punto').forEach((p, i) => {
+        p.classList.toggle('activo', i === indiceActual);
+      });
+    }
+
+    // Anima el ancho de una a-plane sin mover su borde izquierdo
+    function fijarBarraVida(idPlano, porcentaje, anchoMax) {
+      const ancho = (porcentaje / 100) * anchoMax;
+      const plano = el(idPlano);
+      plano.setAttribute('geometry', 'width', Math.max(ancho, 0.001));
+      plano.setAttribute('position', { x: -anchoMax / 2 + ancho / 2, y: 2.9, z: 0.001 });
+    }
+
+    // Altura (en Y) a la que empieza a "flotar" la barra de elixir sobre la
+    // cabeza del personaje. Si con tu modelo/escala la barra todavía queda
+    // muy pegada a la cabeza (o muy lejos, flotando de más), solo hay que
+    // subir o bajar este número.
+    const ELIXIR_BASE_Y = 4.0;
+
+    // Anima la altura de una barra de elixir manteniendo su base fija en
+    // ELIXIR_BASE_Y (siempre centrada en x=0, z=0: directamente arriba del
+    // personaje, nunca a un lado, para que ninguna rotación del grupo ni
+    // ángulo de cámara la deje "atravesando" el modelo).
+    function fijarElixir(idBox, valor0a10) {
+      const alturaMax = 3;
+      const altura = Math.max((valor0a10 / 10) * alturaMax, 0.02);
+      const box = el(idBox);
+      box.setAttribute('geometry', 'height', altura);
+      box.setAttribute('position', { x: 0, y: ELIXIR_BASE_Y + altura / 2 + 0.02, z: 0 });
+    }
+
+    function moverPersonaje(idGrupo, posicion) {
+      if (!posicion) return;
+      el(idGrupo).setAttribute('animation__mover', {
+        property: 'position', to: posicion, dur: 1100, easing: 'easeInOutQuad'
+      });
+    }
+
+    function renderEscena() {
+      const e = escenas[indiceActual];
+
+      // Pequeño fundido del panel de texto para que el cambio de estación
+      // se sienta como una transición, no como un salto brusco.
+      const panel = el('panelNarracion');
+      panel.style.opacity = '0';
+      requestAnimationFrame(() => { panel.style.opacity = '1'; });
+
+      el('tituloEscena').textContent = e.titulo;
+      el('textoEscena').textContent = e.texto;
+
+      fijarElixir('elixirLiebre', e.elixirLiebre);
+      fijarElixir('elixirTortuga', e.elixirTortuga);
+      fijarBarraVida('vidaLiebre', e.vidaLiebre, 2);
+      fijarBarraVida('vidaTortuga', e.vidaTortuga, 2);
+
+      el('anilloLiebre').setAttribute('visible', e.resaltar === 'liebre');
+      el('anilloTortuga').setAttribute('visible', e.resaltar === 'tortuga');
+
+      el('textoVictoria').setAttribute('visible', !!e.victoria);
+
+      moverPersonaje('grupoLiebre', e.posLiebre);
+      moverPersonaje('grupoTortuga', e.posTortuga);
+
+      el('btnAnterior').disabled = indiceActual === 0;
+      el('btnSiguiente').disabled = indiceActual === escenas.length - 1;
+
+      actualizarPuntos();
+    }
+
+    function mostrarMazo(lado) {
+      const m = mazos[lado];
+      el('mazoTitulo').textContent = m.titulo;
+      el('mazoEstilo').textContent = m.estilo;
+      const lista = el('mazoLista');
+      lista.innerHTML = '';
+      m.cartas.forEach((carta) => {
+        const li = document.createElement('li');
+        li.textContent = carta;
+        lista.appendChild(li);
+      });
+      el('panelMazo').style.display = 'block';
+    }
+
+    function iniciar() {
+      crearPuntos();
+      renderEscena();
+
+      el('btnSiguiente').addEventListener('click', () => {
+        if (indiceActual < escenas.length - 1) irAEscena(indiceActual + 1);
+      });
+      el('btnAnterior').addEventListener('click', () => {
+        if (indiceActual > 0) irAEscena(indiceActual - 1);
+      });
+      el('btnReiniciar').addEventListener('click', () => irAEscena(0));
+
+      el('iconoLiebre').addEventListener('click', () => mostrarMazo('liebre'));
+      el('iconoTortuga').addEventListener('click', () => mostrarMazo('tortuga'));
+      el('btnCerrarMazo').addEventListener('click', () => { el('panelMazo').style.display = 'none'; });
+
+      // Oculta el marcador de respaldo apenas el modelo .glb real cargue
+      el('personajeLiebre').addEventListener('model-loaded', () => el('marcadorLiebre').setAttribute('visible', false));
+      el('personajeTortuga').addEventListener('model-loaded', () => el('marcadorTortuga').setAttribute('visible', false));
+
+      crearEstaciones();
+      iniciarNavegacionPorPosicion();
+
+      // Motas de elixir decorativas flotando por la arena
+      const motas = el('motas');
+      for (let i = 0; i < 8; i++) {
+        const x = (Math.random() - 0.5) * 20;
+        const z = (Math.random() - 0.5) * 20;
+        const y = 0.5 + Math.random() * 1.5;
+        const mota = document.createElement('a-sphere');
+        mota.setAttribute('radius', 0.05);
+        mota.setAttribute('position', `${x} ${y} ${z}`);
+        mota.setAttribute('material', 'color:#c084fc; emissive:#c084fc; emissiveIntensity:0.9');
+        mota.setAttribute('animation', `property: position; dir: alternate; dur: ${2500 + Math.random() * 2000}; loop: true; to: ${x} ${y + 0.6} ${z}; easing: easeInOutSine`);
+        motas.appendChild(mota);
+      }
+    }
+
+    // Crea, alrededor de toda la arena (360°), un pilar-estación numerado
+    // por cada paso de la historia. Sirven como referencia visual de hacia
+    // dónde girar y también se pueden clicar directamente.
+    function crearEstaciones() {
+      const cont = el('estaciones');
+
+      escenas.forEach((esc, i) => {
+        const anguloGrados = anguloEscena(i);
+        const p = posicionEnRadio(anguloGrados, RADIO_ESTACIONES);
+
+        const grupo = document.createElement('a-entity');
+        grupo.setAttribute('position', `${p.x.toFixed(2)} 0 ${p.z.toFixed(2)}`);
+
+        // Corona que sostiene la tarjeta: pedestal + banda azul con gemas
+        // + puntas doradas tipo almena, inspirada en la corona de Arena 13.
+        const ALTURA_PEDESTAL = 2.0;
+        const ALTURA_BANDA = 0.22;
+        const Y_BANDA = ALTURA_PEDESTAL + ALTURA_BANDA / 2;
+        const Y_TOPE_BANDA = ALTURA_PEDESTAL + ALTURA_BANDA;
+
+        const pedestal = document.createElement('a-cylinder');
+        pedestal.setAttribute('radius', 0.07);
+        pedestal.setAttribute('height', ALTURA_PEDESTAL);
+        pedestal.setAttribute('position', `0 ${ALTURA_PEDESTAL / 2} 0`);
+        pedestal.setAttribute('material', 'color:#8a7250; roughness:0.6; metalness:0.3');
+
+        const banda = document.createElement('a-cylinder');
+        banda.setAttribute('radius', 0.32);
+        banda.setAttribute('height', ALTURA_BANDA);
+        banda.setAttribute('position', `0 ${Y_BANDA} 0`);
+        banda.setAttribute('material', 'color:#29a9e0; roughness:0.35; metalness:0.2');
+
+        grupo.appendChild(pedestal);
+        grupo.appendChild(banda);
+
+        // Gemas doradas alrededor de la banda azul
+        const NUM_GEMAS = 4;
+        for (let g = 0; g < NUM_GEMAS; g++) {
+          const anguloGema = (360 / NUM_GEMAS) * g;
+          const radGema = (anguloGema * Math.PI) / 180;
+          const gx = 0.33 * Math.sin(radGema);
+          const gz = 0.33 * Math.cos(radGema);
+          const gema = document.createElement('a-octahedron');
+          gema.setAttribute('radius', 0.07);
+          gema.setAttribute('position', `${gx.toFixed(3)} ${Y_BANDA} ${gz.toFixed(3)}`);
+          gema.setAttribute('rotation', `0 ${anguloGema} 0`);
+          gema.setAttribute('material', 'color:#f3c94d; emissive:#f3c94d; emissiveIntensity:0.3; metalness:0.5; roughness:0.3');
+          grupo.appendChild(gema);
+        }
+
+        // Puntas doradas (almenas) arriba de la banda, alternando altas y bajas
+        const NUM_PUNTAS = 8;
+        let yTopeCorona = Y_TOPE_BANDA;
+        for (let pn = 0; pn < NUM_PUNTAS; pn++) {
+          const anguloPunta = (360 / NUM_PUNTAS) * pn;
+          const radPunta = (anguloPunta * Math.PI) / 180;
+          const esAlta = pn % 2 === 0;
+          const alturaPunta = esAlta ? 0.34 : 0.18;
+          const px = 0.27 * Math.sin(radPunta);
+          const pz = 0.27 * Math.cos(radPunta);
+          const py = Y_TOPE_BANDA + alturaPunta / 2;
+          const punta = document.createElement('a-box');
+          punta.setAttribute('width', 0.13);
+          punta.setAttribute('height', alturaPunta);
+          punta.setAttribute('depth', 0.1);
+          punta.setAttribute('position', `${px.toFixed(3)} ${py.toFixed(3)} ${pz.toFixed(3)}`);
+          punta.setAttribute('rotation', `0 ${anguloPunta} 0`);
+          punta.setAttribute('material', 'color:#e8b923; metalness:0.5; roughness:0.3');
+          grupo.appendChild(punta);
+          if (py + alturaPunta / 2 > yTopeCorona) yTopeCorona = py + alturaPunta / 2;
+        }
+
+        const Y_PLACA = yTopeCorona + 0.5;
+
+        const base = document.createElement('a-ring');
+        base.setAttribute('class', 'clickable');
+        base.setAttribute('radius-inner', 0.35);
+        base.setAttribute('radius-outer', 0.55);
+        base.setAttribute('rotation', '-90 0 0');
+        base.setAttribute('position', '0 0.02 0');
+        base.setAttribute('material', 'color:#e0c68a; emissive:#e0c68a; emissiveIntensity:0.5; shader:flat');
+
+        const placa = document.createElement('a-plane');
+        placa.setAttribute('class', 'clickable');
+        placa.setAttribute('width', 1.3);
+        placa.setAttribute('height', 0.75);
+        placa.setAttribute('position', `0 ${Y_PLACA.toFixed(2)} 0`);
+        placa.setAttribute('rotation', `0 ${anguloGrados} 0`);
+        placa.setAttribute('material', 'color:#1b0f2e; opacity:0.85');
+
+        const tituloCorto = esc.titulo.replace(/^\d+\.\s*/, '');
+        const numero = document.createElement('a-entity');
+        numero.setAttribute('position', `0 ${Y_PLACA.toFixed(2)} 0.01`);
+        numero.setAttribute('rotation', `0 ${anguloGrados} 0`);
+        numero.setAttribute('text', `value: ${i + 1}\n${tituloCorto}; align:center; width:1.15; color:#f3e9ff; wrapCount:18`);
+
+        grupo.appendChild(base);
+        grupo.appendChild(placa);
+        grupo.appendChild(numero);
+        cont.appendChild(grupo);
+
+        [base, placa].forEach((clicable) => {
+          clicable.addEventListener('click', () => irAEscena(i));
+        });
+      });
+    }
+
+    // Cada frame hace dos cosas, igual que "limite-mundo" y
+    // "punto-decision" del ejemplo de referencia, pero adaptadas a esta
+    // arena circular:
+    //   1) Mantiene a la cámara dentro del piso de la arena (WASD no te
+    //      deja salir caminando hacia la nada).
+    //   2) Si la cámara queda cerca de un pilar-estación, esa pasa a ser
+    //      la escena activa — así caminar (WASD) o hacer clic en un
+    //      pilar/botón se sienten como la misma acción, sin pelearse
+    //      nunca entre sí (un teletransporte por clic deja a la cámara
+    //      justo dentro del radio de su propia estación).
+    function iniciarNavegacionPorPosicion() {
+      function cuadro() {
+        requestAnimationFrame(cuadro);
+        if (!camara || !camara.object3D) return; // A-Frame aún no está listo
+
+        const pos = camara.object3D.position;
+
+        // 1) Límite de mundo: no salir del piso circular de la arena.
+        const distCentro = Math.hypot(pos.x, pos.z);
+        if (distCentro > RADIO_ARENA) {
+          const factor = RADIO_ARENA / distCentro;
+          camara.object3D.position.x = pos.x * factor;
+          camara.object3D.position.z = pos.z * factor;
+        }
+
+        const instruccionesAbiertas = el('panelInstrucciones').style.display !== 'none';
+        if (instruccionesAbiertas) return;
+
+        // 2) Estación más cercana dentro del radio de detección.
+        let masCercana = -1;
+        let menorDistancia = RADIO_DETECCION;
+        for (let i = 0; i < escenas.length; i++) {
+          const p = posicionEnRadio(anguloEscena(i), RADIO_ESTACIONES);
+          const d = Math.hypot(pos.x - p.x, pos.z - p.z);
+          if (d < menorDistancia) {
+            menorDistancia = d;
+            masCercana = i;
+          }
+        }
+        if (masCercana !== -1 && masCercana !== indiceActual) {
+          irAEscena(masCercana, { moverCamara: false });
+        }
+      }
+      requestAnimationFrame(cuadro);
+    }
+
+    // El botón "Entendido" se conecta de inmediato, sin depender de que la
+    // escena 3D (ni los modelos .glb) terminen de cargar, para que siempre
+    // se pueda cerrar el panel de instrucciones.
+    el('btnEntendido').addEventListener('click', () => { el('panelInstrucciones').style.display = 'none'; });
+
+    // El resto de la infografía (barras, personajes, etc.) también se
+    // inicializa de inmediato: los elementos ya existen en el DOM aunque la
+    // escena 3D siga cargando sus texturas/modelos en segundo plano.
+    try {
+      iniciar();
+    } catch (err) {
+      console.error('Error inicializando la infografía:', err);
+    }
+  </script>
+</body>
+</html>
